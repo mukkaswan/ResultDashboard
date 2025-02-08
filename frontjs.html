@@ -1,0 +1,928 @@
+<script>
+
+    let headers = [];
+    let headers2 = [];
+    let loggedInUser;
+    let headersLoaded = false;
+    let headers2Loaded = false;
+    let classNamesLoaded = false;
+
+    const checkLoginAndShowContent = () => {
+      if (loggedInUser && headersLoaded && headers2Loaded && classNamesLoaded) {
+        showDashboard(loggedInUser);
+        hidePageLoader();
+      } else if (!loggedInUser && headersLoaded && headers2Loaded && classNamesLoaded) {
+        showLoginForm();
+        hidePageLoader();
+      }
+    };
+
+    const loadHeaders = () => {
+      google.script.run
+        .withSuccessHandler(function(returnedHeaders) {
+          headers = returnedHeaders;
+          headersLoaded = true;
+          checkLoginAndShowContent();
+        })
+        .withFailureHandler(function(error) {
+          console.error('Error loading REPORT headers:', error);
+          headersLoaded = true;
+          checkLoginAndShowContent();
+        })
+        .getReportHeaders();
+
+      google.script.run
+        .withSuccessHandler(function(returnedHeaders2) {
+          headers2 = returnedHeaders2;
+          headers2Loaded = true;
+          checkLoginAndShowContent();
+        })
+        .withFailureHandler(function(error) {
+          console.error('Error loading RESULT headers:', error);
+          headers2Loaded = true;
+          checkLoginAndShowContent();
+        })
+        .getReport2Headers();
+
+      loadClassNames();
+    };
+
+    function loadClassNames() {
+      google.script.run
+        .withSuccessHandler(function(tradeNames) {
+          populateClassDropdown('className', tradeNames);
+          populateClassDropdown('regClassName', tradeNames);
+          classNamesLoaded = true;
+          checkLoginAndShowContent();
+        })
+        .withFailureHandler(function(error) {
+          console.error('Error loading trade names:', error);
+          classNamesLoaded = true;
+          checkLoginAndShowContent();
+        })
+        .getTradeNamesFromReport2();
+    }
+
+    async function fetchClassNames() {
+      try {
+        const response = await google.script.run
+          .withSuccessHandler(function(tradeNames) {
+            populateClassDropdown('className', tradeNames);
+            populateClassDropdown('regClassName', tradeNames);
+          })
+          .getTradeNamesFromReport2();
+      } catch (error) {
+        console.error('Error fetching trade names:', error);
+      }
+    }
+
+    function populateClassDropdown(dropdownId, tradeNames) {
+      const dropdown = document.getElementById(dropdownId);
+      dropdown.innerHTML = '<option value="">Select Trade</option>';
+      
+      // Remove duplicates and sort
+      const uniqueTradeNames = [...new Set(tradeNames)].sort();
+      
+      uniqueTradeNames.forEach(tradeName => {
+        if (tradeName && tradeName.trim()) {
+          const option = document.createElement('option');
+          option.value = tradeName.trim();
+          option.textContent = tradeName.trim();
+          dropdown.appendChild(option);
+        }
+      });
+    }
+
+    // Consolidate the role-specific fields toggle functions
+    function toggleRoleFields(roleFieldId, classDropdownId, dobFieldId, mobileFieldId = null) {
+      const userRole = document.getElementById(roleFieldId).value;
+      const classDropdown = document.getElementById(classDropdownId);
+      const dobField = document.getElementById(dobFieldId);
+      const mobileField = mobileFieldId ? document.getElementById(mobileFieldId) : null;
+      
+      // Handle class dropdown
+      if (userRole === 'trainee' || userRole === 'instructor') {
+        classDropdown.style.display = 'block';
+      } else {
+        classDropdown.style.display = 'none';
+        document.getElementById(classDropdownId.replace('Dropdown', 'Name')).value = '';
+      }
+
+      // Handle DOB field
+      if (userRole === 'trainee') {
+        dobField.style.display = 'block';
+      } else {
+        dobField.style.display = 'none';
+        document.getElementById(dobFieldId.replace('Field', '')).value = '';
+      }
+
+      // Handle mobile field
+      if (mobileField && userRole) {
+        mobileField.style.display = 'block';
+      } else if (mobileField) {
+        mobileField.style.display = 'none';
+        document.getElementById(mobileFieldId.replace('Field', '')).value = '';
+      }
+    }
+
+    // Replace the old toggle functions with calls to the consolidated function
+    function toggleRegRoleSpecificFields() {
+      const role = document.getElementById('regUserRole').value;
+      const classDropdown = document.getElementById('regClassDropdown');
+      const dobField = document.getElementById('regDobField');
+      const usernameField = document.getElementById('reg-username');
+      const tradeSelect = document.getElementById('regClassName');
+      
+      // Reset trade selection
+      tradeSelect.value = '';
+      
+      // Show/hide fields based on role
+      if (role === 'trainee') {
+        classDropdown.style.display = 'block';
+        dobField.style.display = 'block';
+        usernameField.placeholder = 'Enter Registration Number';
+      } else if (role === 'instructor') {
+        classDropdown.style.display = 'block';
+        dobField.style.display = 'block';
+        usernameField.placeholder = 'Enter Username';
+      } else if (role === 'admin') {
+        classDropdown.style.display = 'none';
+        dobField.style.display = 'block';
+        usernameField.placeholder = 'Enter Username';
+      } else {
+        classDropdown.style.display = 'none';
+        dobField.style.display = 'none';
+        usernameField.placeholder = 'Username/Registration No';
+      }
+    }
+
+    function toggleRoleSpecificFields() {
+      toggleRoleFields('userRole', 'classDropdown', 'dobField');
+    }
+
+    function checkLoginStatus() {
+      google.script.run
+        .withSuccessHandler(function(user) {
+          loggedInUser = user;
+          loadHeaders();
+        })
+        .withFailureHandler(function(error) {
+          console.error('Error checking login status:', error);
+          loggedInUser = null;
+          loadHeaders();
+        })
+        .getLoggedInUser();
+    }
+
+    const hidePageLoader = () => {
+      const pageLoader = document.getElementById('page-loader');
+      const content = document.getElementById('content');
+      pageLoader.classList.add('hidden');
+      content.classList.remove('hidden');
+    };
+
+    function loadUserData(username) {
+      google.script.run
+        .withSuccessHandler(function(userData) {
+          if (userData) {
+            let content = '';
+
+            // Add REPORT data if available
+            if (userData.reportData && userData.reportData.data && userData.reportData.data.length > 0) {
+              content += `
+                <div class="bg-white p-4 sm:p-6 rounded-lg shadow-md mb-4">
+                  <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-4 gap-2">
+                    <h3 class="text-lg font-semibold">REPORT Data</h3>
+                    <div class="flex gap-2">
+                      ${userData.role === 'admin' ? `
+                        <button onclick="exportTableData('REPORT')" 
+                                class="bg-green-500 hover:bg-green-600 text-white px-4 py-2 rounded-lg flex items-center gap-2 transition-colors">
+                          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/>
+                          </svg>
+                          Export CSV
+                        </button>
+                        <div class="relative w-full sm:w-auto">
+                          <input type="text" 
+                            placeholder="Search in Report..." 
+                            class="w-full sm:w-64 px-4 py-2 border rounded-lg shadow-sm focus:ring-2 focus:ring-blue-300 focus:border-blue-300 transition-all"
+                            oninput="filterTable('report-table', this.value)"
+                          >
+                          <svg class="absolute right-3 top-2.5 h-5 w-5 text-gray-400" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
+                            <path fill-rule="evenodd" d="M8 4a4 4 0 100 8 4 4 0 000-8zM2 8a6 6 0 1110.89 3.476l4.817 4.817a1 1 0 01-1.414 1.414l-4.816-4.816A6 6 0 012 8z" clip-rule="evenodd" />
+                          </svg>
+                        </div>
+                      ` : ''}
+                    </div>
+                  </div>
+                  <div class="overflow-x-auto -mx-4 sm:mx-0">
+                    <div class="inline-block min-w-full align-middle">
+                      <table id="report-table" class="min-w-full divide-y divide-gray-200">
+                        <thead>
+                          <tr>
+                            ${userData.reportData.headers.map(header => 
+                              `<th class="px-4 sm:px-6 py-3 text-left text-xs uppercase tracking-wider" style="
+                                background-color: ${header.background};
+                                color: ${header.foreground || '#000'};
+                                font-weight: ${header.bold ? 'bold' : 'normal'};
+                                font-style: ${header.italic ? 'italic' : 'normal'};
+                                text-decoration: ${header.underline && header.strikethrough ? 'underline line-through' : 
+                                                 header.underline ? 'underline' : 
+                                                 header.strikethrough ? 'line-through' : 'none'};
+                              ">${header.value}</th>`
+                            ).join('')}
+                          </tr>
+                        </thead>
+                        <tbody>
+                          ${userData.reportData.data.map(row => `
+                            <tr>
+                              ${row.map(cell => `
+                                <td class="px-4 sm:px-6 py-4 whitespace-nowrap text-sm" style="
+                                  background-color: ${cell.background};
+                                  color: ${cell.foreground || '#000'};
+                                  font-weight: ${cell.bold ? 'bold' : 'normal'};
+                                  font-style: ${cell.italic ? 'italic' : 'normal'};
+                                  text-decoration: ${cell.underline && cell.strikethrough ? 'underline line-through' : 
+                                                   cell.underline ? 'underline' : 
+                                                   cell.strikethrough ? 'line-through' : 'none'};
+                                ">${cell.value}</td>
+                              `).join('')}
+                            </tr>
+                          `).join('')}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                </div>
+              `;
+            } else {
+              content += `
+                <div class="bg-white p-4 sm:p-6 rounded-lg shadow-md mb-4">
+                  <h3 class="text-lg font-semibold mb-2">REPORT Data</h3>
+                  <p class="text-gray-500">No data found in REPORT sheet.</p>
+                </div>
+              `;
+            }
+
+            // Add RESULT data if available
+            if (userData.resultData && userData.resultData.data && userData.resultData.data.length > 0) {
+              content += `
+                <div class="bg-white p-4 sm:p-6 rounded-lg shadow-md mb-4">
+                  <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-4 gap-2">
+                    <h3 class="text-lg font-semibold">RESULT Data</h3>
+                    <div class="flex gap-2">
+                      ${userData.role === 'admin' ? `
+                        <button onclick="exportTableData('RESULT')" 
+                                class="bg-green-500 hover:bg-green-600 text-white px-4 py-2 rounded-lg flex items-center gap-2 transition-colors">
+                          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/>
+                          </svg>
+                          Export CSV
+                        </button>
+                        <div class="relative w-full sm:w-auto">
+                          <input type="text" 
+                            placeholder="Search in Result..." 
+                            class="w-full sm:w-64 px-4 py-2 border rounded-lg shadow-sm focus:ring-2 focus:ring-blue-300 focus:border-blue-300 transition-all"
+                            oninput="filterTable('result-table', this.value)"
+                          >
+                          <svg class="absolute right-3 top-2.5 h-5 w-5 text-gray-400" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
+                            <path fill-rule="evenodd" d="M8 4a4 4 0 100 8 4 4 0 000-8zM2 8a6 6 0 1110.89 3.476l4.817 4.817a1 1 0 01-1.414 1.414l-4.816-4.816A6 6 0 012 8z" clip-rule="evenodd" />
+                          </svg>
+                        </div>
+                      ` : ''}
+                    </div>
+                  </div>
+                  <div class="overflow-x-auto -mx-4 sm:mx-0">
+                    <div class="inline-block min-w-full align-middle">
+                      <table id="result-table" class="min-w-full divide-y divide-gray-200">
+                        <thead>
+                          <tr>
+                            ${userData.resultData.headers.map(header => 
+                              `<th class="px-4 sm:px-6 py-3 text-left text-xs uppercase tracking-wider" style="
+                                background-color: ${header.background};
+                                color: ${header.foreground || '#000'};
+                                font-weight: ${header.bold ? 'bold' : 'normal'};
+                                font-style: ${header.italic ? 'italic' : 'normal'};
+                                text-decoration: ${header.underline && header.strikethrough ? 'underline line-through' : 
+                                                 header.underline ? 'underline' : 
+                                                 header.strikethrough ? 'line-through' : 'none'};
+                              ">${header.value}</th>`
+                            ).join('')}
+                          </tr>
+                        </thead>
+                        <tbody>
+                          ${userData.resultData.data.map(row => `
+                            <tr>
+                              ${row.map(cell => `
+                                <td class="px-4 sm:px-6 py-4 whitespace-nowrap text-sm" style="
+                                  background-color: ${cell.background};
+                                  color: ${cell.foreground || '#000'};
+                                  font-weight: ${cell.bold ? 'bold' : 'normal'};
+                                  font-style: ${cell.italic ? 'italic' : 'normal'};
+                                  text-decoration: ${cell.underline && cell.strikethrough ? 'underline line-through' : 
+                                                   cell.underline ? 'underline' : 
+                                                   cell.strikethrough ? 'line-through' : 'none'};
+                                ">${cell.value}</td>
+                              `).join('')}
+                            </tr>
+                          `).join('')}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                </div>
+              `;
+            } else {
+              content += `
+                <div class="bg-white p-4 sm:p-6 rounded-lg shadow-md mb-4">
+                  <h3 class="text-lg font-semibold mb-2">RESULT Data</h3>
+                  <p class="text-gray-500">No data found in RESULT sheet.</p>
+                </div>
+              `;
+            }
+
+            document.getElementById('dashboard-content').innerHTML = content;
+          } else {
+            document.getElementById('dashboard-content').innerHTML = "<p class='text-center text-gray-500'>No user data found.</p>";
+          }
+        })
+        .withFailureHandler(function(error) {
+          document.getElementById('dashboard-content').innerHTML = "<p class='text-center text-red-500'>Error loading user data.</p>";
+        })
+        .getDataForUser();
+    }
+
+    function filterTable(tableId, searchTerm) {
+      const table = document.getElementById(tableId);
+      if (!table) return;
+
+      const rows = table.getElementsByTagName('tr');
+      searchTerm = searchTerm.toLowerCase();
+
+      // Start from 1 to skip header row
+      for (let i = 1; i < rows.length; i++) {
+        const row = rows[i];
+        const cells = row.getElementsByTagName('td');
+        let found = false;
+
+        for (let j = 0; j < cells.length; j++) {
+          const cellText = cells[j].textContent || cells[j].innerText;
+          if (cellText.toLowerCase().indexOf(searchTerm) > -1) {
+            found = true;
+            break;
+          }
+        }
+
+        row.style.display = found ? '' : 'none';
+      }
+    }
+
+    function showDashboard(username) {
+      document.getElementById('login-form').classList.add('hidden');
+      document.getElementById('registration-form').classList.add('hidden');
+      document.getElementById('dashboard').classList.remove('hidden');
+      document.getElementById('user-display').innerText = username;
+      loadUserData(username);
+    }
+
+    function showLoginForm() {
+      document.getElementById('login-form').classList.remove('hidden');
+      document.getElementById('registration-form').classList.add('hidden');
+      document.getElementById('dashboard').classList.add('hidden');
+      document.getElementById('login-error').textContent = '';
+      
+      // Clear login form fields
+      document.getElementById('username').value = '';
+      document.getElementById('password').value = '';
+      document.getElementById('userRole').value = '';
+      document.getElementById('className').value = '';
+      document.getElementById('dob').value = '';
+      
+      // Clear registration form
+      clearRegistrationForm();
+      
+      // Reset visibility of role-specific fields
+      document.getElementById('classDropdown').style.display = 'none';
+      document.getElementById('dobField').style.display = 'none';
+    }
+
+    function showRegistrationForm() {
+      document.getElementById('login-form').classList.add('hidden');
+      document.getElementById('dashboard').classList.add('hidden');
+      document.getElementById('registration-form').classList.remove('hidden');
+      document.getElementById('registration-error').innerText = '';
+      document.getElementById('reg-username').value = '';
+      document.getElementById('reg-password').value = '';
+    }
+
+    function login() {
+      showLoader();
+      const username = document.getElementById('username').value.trim();
+      const password = document.getElementById('password').value;
+      const role = document.getElementById('userRole').value;
+      let trade = document.getElementById('className').value;
+      let dob = document.getElementById('dob').value;
+      
+      // Clear any previous error messages
+      document.getElementById('login-error').textContent = '';
+      
+      // Username validation
+      if (!isValidUsername(username)) {
+        hideLoader();
+        document.getElementById('login-error').textContent = 'Username must contain at least one letter. Only letters and numbers are allowed.';
+        return;
+      }
+      
+      // Basic validation
+      if (!username || !password || !role) {
+        hideLoader();
+        document.getElementById('login-error').textContent = 'Please fill in all required fields.';
+        return;
+      }
+      
+      // For trainee role, validate DOB
+      if (role === 'trainee' && !dob) {
+        hideLoader();
+        document.getElementById('login-error').textContent = 'Please enter your date of birth.';
+        return;
+      }
+
+      // For non-admin roles, validate trade selection
+      if (role !== 'admin' && !trade) {
+        hideLoader();
+        document.getElementById('login-error').textContent = 'Please select a trade.';
+        return;
+      }
+      
+      // Set trade to empty string for admin role
+      if (role === 'admin') {
+        trade = '';
+      }
+
+      // Set dob to empty string for non-trainee roles
+      if (role !== 'trainee') {
+        dob = '';
+      }
+
+      google.script.run
+        .withSuccessHandler(function(result) {
+          hideLoader();
+          if (result.success) {
+            loggedInUser = username;
+            showDashboard(username);
+            loadUserData(username);
+          } else {
+            document.getElementById('login-error').textContent = result.message || 'Login failed';
+          }
+        })
+        .withFailureHandler(function(error) {
+          hideLoader();
+          document.getElementById('login-error').textContent = 'An error occurred during login';
+          console.error('Login error:', error);
+        })
+        .checkLogin(username, password, role, trade, dob);
+    }
+
+    function logout() {
+      const button = document.getElementById('logout-button');
+      const loader = button.querySelector('.loader-inside');
+      button.disabled = true;
+      if (loader) {
+          loader.style.display = 'inline-block';
+      }
+
+      google.script.run
+        .withSuccessHandler(function(success) {
+          if (success) {
+            loggedInUser = null;
+            button.disabled = false;
+            if (loader) {
+                loader.style.display = 'none';
+            }
+            showLoginForm();
+          }
+        })
+        .withFailureHandler(function(error) {
+          console.error('Logout failed:', error);
+          button.disabled = false;
+          if (loader) {
+              loader.style.display = 'none';
+          }
+        })
+        .logout();
+    }
+
+    function register() {
+      showLoader();
+      const username = document.getElementById('reg-username').value.trim();
+      const password = document.getElementById('reg-password').value;
+      const confirmPassword = document.getElementById('reg-password-confirm').value;
+      const mobile = document.getElementById('reg-mobile').value.trim();
+      const role = document.getElementById('regUserRole').value;
+      const trade = document.getElementById('regClassName').value;
+      const dob = document.getElementById('regDob').value;
+
+      // Clear previous error
+      document.getElementById('registration-error').textContent = '';
+
+      // Client-side validation
+      if (!username || !password || !confirmPassword || !mobile || !role) {
+        hideLoader();
+        document.getElementById('registration-error').textContent = 'Please fill in all required fields';
+        return;
+      }
+
+      if (!isValidUsername(username)) {
+        hideLoader();
+        document.getElementById('registration-error').textContent = 'Username must contain at least one letter. Only letters and numbers are allowed.';
+        return;
+      }
+
+      if (password !== confirmPassword) {
+        hideLoader();
+        document.getElementById('registration-error').textContent = 'Passwords do not match';
+        return;
+      }
+
+      if (password.length < 3) {
+        hideLoader();
+        document.getElementById('registration-error').textContent = 'Password must be at least 3 characters long';
+        return;
+      }
+
+      if (!/^\d{10}$/.test(mobile)) {
+        hideLoader();
+        document.getElementById('registration-error').textContent = 'Mobile number must be 10 digits';
+        return;
+      }
+
+      if ((role === 'trainee' || role === 'instructor') && !trade) {
+        hideLoader();
+        document.getElementById('registration-error').textContent = 'Please select a trade';
+        return;
+      }
+
+      if ((role === 'trainee' || role === 'instructor' || role === 'admin') && !dob) {
+        hideLoader();
+        document.getElementById('registration-error').textContent = 'Please enter your date of birth';
+        return;
+      }
+
+      // Proceed with registration
+      google.script.run
+        .withSuccessHandler(function(result) {
+          hideLoader();
+          if (result.success) {
+            clearRegistrationForm(); // Clear the form after successful registration
+            showPopup('Registration successful! Please login.', username);
+            showLoginForm();
+          } else {
+            document.getElementById('registration-error').textContent = result.message || 'Registration failed';
+          }
+        })
+        .withFailureHandler(function(error) {
+          hideLoader();
+          document.getElementById('registration-error').textContent = 'An error occurred during registration';
+          console.error('Registration error:', error);
+        })
+        .registerUser(username, password, mobile, role, trade, dob);
+    }
+
+    function clearRegistrationForm() {
+      // Clear all input fields
+      document.getElementById('regUserRole').value = '';
+      document.getElementById('reg-username').value = '';
+      document.getElementById('reg-password').value = '';
+      document.getElementById('reg-password-confirm').value = '';
+      document.getElementById('reg-mobile').value = '';
+      document.getElementById('regDob').value = '';
+      document.getElementById('regClassName').value = '';
+      
+      // Reset placeholders and visibility
+      document.getElementById('reg-username').placeholder = 'Username/Registration No';
+      document.getElementById('regClassDropdown').style.display = 'none';
+      document.getElementById('regDobField').style.display = 'none';
+      
+      // Clear any error messages
+      document.getElementById('registration-error').textContent = '';
+    }
+
+    function showPopup(message, username = '') {
+      const popup = document.getElementById('popup');
+      const popupMessage = document.getElementById('popup-message');
+      const popupUsername = document.getElementById('popup-username');
+      const usernameButton = popupUsername.querySelector('button');
+      
+      popupMessage.textContent = message;
+      
+      if (username) {
+        usernameButton.textContent = username;
+        popupUsername.classList.remove('hidden');
+      } else {
+        popupUsername.classList.add('hidden');
+      }
+      
+      popup.classList.remove('hidden');
+    }
+
+    function closePopupOnOutsideClick(event) {
+      const popup = document.getElementById('popup');
+      const popupContent = popup.querySelector('.bg-white');
+      
+      // Check if the click is outside the popup content
+      if (event.target === popup) {
+        closePopup(popup);
+        showLoginForm();
+      }
+      
+      // Prevent the click from propagating when clicking inside the popup
+      event.stopPropagation();
+    }
+
+    function closePopup(popup) {
+      popup.classList.add('hidden');
+    }
+
+    function showForgotUsernamePopup() {
+      document.getElementById('forgot-username-popup').classList.remove('hidden');
+      document.getElementById('forgot-username-message').innerText = ""; // Clear any previous messages
+      document.getElementById('forgot-mobile').value = ""; // Clear the input field
+      document.getElementById('usernames-list').classList.add('hidden');
+    }
+
+    function closeForgotUsernamePopupOnOutsideClick(event) {
+      const popup = document.getElementById('forgot-username-popup');
+      const popupContent = popup.querySelector('.bg-white');
+      
+      // Check if the click is outside the popup content
+      if (event.target === popup) {
+        closeForgotUsernamePopup();
+      }
+    }
+
+    function closeForgotUsernamePopup() {
+      const popup = document.getElementById('forgot-username-popup');
+      const mobileInput = document.getElementById('forgot-mobile');
+      const messageDiv = document.getElementById('forgot-username-message');
+      const usernamesDiv = document.getElementById('usernames-list');
+      
+      // Clear input and messages
+      mobileInput.value = '';
+      messageDiv.innerHTML = '';
+      usernamesDiv.innerHTML = '';
+      usernamesDiv.classList.add('hidden');
+      
+      // Hide popup
+      popup.classList.add('hidden');
+    }
+
+    function findUsername() {
+      const mobileNumber = document.getElementById('forgot-mobile').value.trim();
+      const messageDiv = document.getElementById('forgot-username-message');
+      const usernamesDiv = document.getElementById('usernames-list');
+      const searchButton = document.querySelector('#forgot-username-popup button[onclick="findUsername()"]');
+      
+      if (!mobileNumber) {
+        messageDiv.innerHTML = '<span class="text-red-500">Please enter a mobile number.</span>';
+        usernamesDiv.classList.add('hidden');
+        return;
+      }
+
+      if (!/^\d{10}$/.test(mobileNumber)) {
+        messageDiv.innerHTML = '<span class="text-red-500">Please enter a valid 10-digit mobile number.</span>';
+        usernamesDiv.classList.add('hidden');
+        return;
+      }
+
+      // Show loading state
+      messageDiv.innerHTML = '<div class="flex items-center justify-center space-x-2"><div class="animate-spin rounded-full h-4 w-4 border-2 border-blue-500 border-t-transparent"></div><span class="text-blue-500">Searching...</span></div>';
+      usernamesDiv.classList.add('hidden');
+      searchButton.disabled = true;
+      searchButton.classList.add('opacity-50', 'cursor-not-allowed');
+
+      google.script.run
+        .withSuccessHandler(function(users) {
+          searchButton.disabled = false;
+          searchButton.classList.remove('opacity-50', 'cursor-not-allowed');
+          
+          if (users && users.length > 0) {
+            messageDiv.innerHTML = '<span class="text-green-500">Found the following accounts:</span>';
+            usernamesDiv.innerHTML = users.map(user => `
+              <div class="bg-white p-4 rounded-lg shadow-md hover:shadow-lg transition-shadow duration-200 mb-3">
+                <div class="flex flex-col space-y-2">
+                  <div class="flex justify-between items-center">
+                    <span class="text-sm font-medium text-gray-500">Username:</span>
+                    <button 
+                      onclick="return copyToClipboard(event, '${user.username}')" 
+                      class="bg-blue-100 hover:bg-blue-200 text-blue-800 font-semibold py-1 px-3 rounded-full text-sm focus:outline-none focus:ring-2 focus:ring-blue-400 transition-colors duration-200 group relative"
+                      title="Click to copy username"
+                    >
+                      ${user.username}
+                      <span class="copy-tooltip hidden group-hover:block absolute -top-8 left-1/2 transform -translate-x-1/2 bg-gray-800 text-white text-xs py-1 px-2 rounded">
+                        Click to copy
+                      </span>
+                    </button>
+                  </div>
+                  <div class="flex justify-between items-center">
+                    <span class="text-sm font-medium text-gray-500">Role:</span>
+                    <span class="text-sm text-gray-700 capitalize">${user.role}</span>
+                  </div>
+                  ${user.trade ? `
+                    <div class="flex justify-between items-center">
+                      <span class="text-sm font-medium text-gray-500">Trade:</span>
+                      <span class="text-sm text-gray-700">${user.trade}</span>
+                    </div>
+                  ` : ''}
+                  ${user.registrationDate ? `
+                    <div class="flex justify-between items-center">
+                      <span class="text-sm font-medium text-gray-500">Registered On:</span>
+                      <span class="text-sm text-gray-700">${user.registrationDate}</span>
+                    </div>
+                  ` : ''}
+                </div>
+              </div>
+            `).join('');
+            usernamesDiv.classList.remove('hidden');
+          } else {
+            messageDiv.innerHTML = '<span class="text-red-500">No accounts found for this mobile number.</span>';
+            usernamesDiv.classList.add('hidden');
+          }
+        })
+        .withFailureHandler(function(error) {
+          searchButton.disabled = false;
+          searchButton.classList.remove('opacity-50', 'cursor-not-allowed');
+          messageDiv.innerHTML = '<span class="text-red-500">Error occurred while searching. Please try again.</span>';
+          usernamesDiv.classList.add('hidden');
+        })
+        .getUsernameByMobile(mobileNumber);
+    }
+
+    function formatMobileNumber(input) {
+      // Remove all non-digit characters
+      let value = input.value.replace(/\D/g, '');
+      
+      // Truncate to 10 digits if longer
+      value = value.substring(0, 10);
+      
+      input.value = value;
+    }
+
+    function showForgotPasswordPopup() {
+      document.getElementById('forgot-password-popup').classList.remove('hidden');
+      document.getElementById('forgot-password-message').innerText = ""; // Clear any previous messages
+      document.getElementById('forgot-pass-username').value = ""; // Clear the input field
+      document.getElementById('forgot-pass-dob').value = ""; // Clear the input field
+      document.getElementById('forgot-pass-mobile').value = ""; // Clear the input field
+      document.getElementById('password-display').classList.add('hidden');
+    }
+
+    function closeForgotPasswordPopupOnOutsideClick(event) {
+      const popup = document.getElementById('forgot-password-popup');
+      const popupContent = popup.querySelector('.bg-white');
+      
+      // Check if the click is outside the popup content
+      if (event.target === popup) {
+        closeForgotPasswordPopup();
+      }
+    }
+
+    function closeForgotPasswordPopup() {
+      const popup = document.getElementById('forgot-password-popup');
+      const usernameInput = document.getElementById('forgot-pass-username');
+      const dobInput = document.getElementById('forgot-pass-dob');
+      const mobileInput = document.getElementById('forgot-pass-mobile');
+      const messageDiv = document.getElementById('forgot-password-message');
+      const passwordDiv = document.getElementById('password-display');
+      
+      // Clear input and messages
+      usernameInput.value = '';
+      dobInput.value = '';
+      mobileInput.value = '';
+      messageDiv.innerHTML = '';
+      passwordDiv.innerHTML = '';
+      passwordDiv.classList.add('hidden');
+      
+      // Hide popup
+      popup.classList.add('hidden');
+    }
+
+    function findPassword() {
+      const username = document.getElementById('forgot-pass-username').value.trim();
+      const dob = document.getElementById('forgot-pass-dob').value.trim();
+      const mobile = document.getElementById('forgot-pass-mobile').value.trim();
+      const messageDiv = document.getElementById('forgot-password-message');
+      const passwordDiv = document.getElementById('password-display');
+      
+      if (!username || !dob || !mobile) {
+        messageDiv.innerHTML = '<span class="text-red-500">Please fill in all required fields.</span>';
+        passwordDiv.classList.add('hidden');
+        return;
+      }
+
+      if (!/^\d{10}$/.test(mobile)) {
+        messageDiv.innerHTML = '<span class="text-red-500">Please enter a valid 10-digit mobile number.</span>';
+        passwordDiv.classList.add('hidden');
+        return;
+      }
+
+      messageDiv.innerHTML = '<span class="text-blue-500">Searching...</span>';
+      passwordDiv.classList.add('hidden');
+
+      google.script.run
+        .withSuccessHandler(function(result) {
+          if (result.success) {
+            messageDiv.innerHTML = '<span class="text-green-500">Password found!</span>';
+            passwordDiv.innerHTML = `
+              <button onclick="copyToClipboard(event, this.textContent)" class="bg-blue-100 hover:bg-blue-200 text-blue-800 font-semibold py-2 px-4 rounded-lg transition-colors duration-200 cursor-pointer password-text">
+                ${result.password}
+              </button>
+            `;
+            passwordDiv.classList.remove('hidden');
+          } else {
+            messageDiv.innerHTML = `<span class="text-red-500">${result.message}</span>`;
+            passwordDiv.classList.add('hidden');
+          }
+        })
+        .withFailureHandler(function(error) {
+          messageDiv.innerHTML = '<span class="text-red-500">Error occurred while searching. Please try again.</span>';
+          passwordDiv.classList.add('hidden');
+        })
+        .getPasswordByUsernameDobMobile(username, dob, mobile);
+    }
+
+    // Function to copy text to clipboard
+    async function copyToClipboard(event, text) {
+      const messageDiv = document.getElementById('forgot-password-message');
+      const button = event.target;
+      const originalClass = button.className;
+      
+      try {
+        navigator.clipboard.writeText(text);
+        
+        // Change button appearance to indicate success
+        button.textContent = '✓ Copied!';
+        button.className = 'bg-green-100 hover:bg-green-200 text-green-800 font-semibold py-2 px-4 rounded-lg transition-colors duration-200 cursor-pointer password-text';
+        
+        // Show success message
+        messageDiv.innerHTML = '<span class="text-green-500">Password copied to clipboard!</span>';
+        
+        // Revert back after 1.5 seconds
+        setTimeout(() => {
+          button.textContent = text;
+          button.className = originalClass;
+          messageDiv.innerHTML = '<span class="text-green-500">Password found!</span>';
+        }, 1500);
+
+      } catch (err) {
+        console.error('Failed to copy text: ', err);
+        messageDiv.innerHTML = '<span class="text-red-500">Failed to copy password. Please try again.</span>';
+      }
+      
+      return false;
+    }
+
+    // Function to validate username format
+    function isValidUsername(username) {
+      // Username must contain at least one letter and can include numbers
+      return /^(?=.*[a-zA-Z])[a-zA-Z0-9]+$/.test(username);
+    }
+
+    function exportTableData(sheetName) {
+      google.script.run
+        .withSuccessHandler(function(csvContent) {
+          if (csvContent) {
+            // Create blob and download
+            const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+            const link = document.createElement('a');
+            const url = URL.createObjectURL(blob);
+            link.setAttribute('href', url);
+            link.setAttribute('download', `${sheetName}_${new Date().toISOString().split('T')[0]}.csv`);
+            link.style.visibility = 'hidden';
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+          } else {
+            showPopup('Error exporting data. Please try again.');
+          }
+        })
+        .withFailureHandler(function(error) {
+          showPopup('Error: ' + error);
+        })
+        .exportTableAsCSV(sheetName);
+    }
+
+    // Add loading state management
+    function showLoader() {
+      const loader = document.getElementById('pageLoader');
+      if (loader) {
+        loader.style.display = 'flex';
+      }
+    }
+
+    function hideLoader() {
+      const loader = document.getElementById('pageLoader');
+      if (loader) {
+        loader.style.display = 'none';
+      }
+    }
+  </script>
